@@ -100,6 +100,25 @@ export const alarms = pgTable("alarms", {
   createdAtIdx: index("alarms_created_at_idx").on(table.createdAt),
 }));
 
+// SNMP traps table - stores incoming trap events
+export const snmpTraps = pgTable("snmp_traps", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  transmitterId: varchar("transmitter_id").references(() => transmitters.id),
+  siteId: varchar("site_id").references(() => sites.id),
+  sourceHost: text("source_host").notNull(),
+  sourcePort: integer("source_port").notNull(),
+  community: text("community"),
+  version: integer("version").notNull(), // 0=v1, 1=v2c
+  trapOid: text("trap_oid"),
+  enterpriseOid: text("enterprise_oid"),
+  varbinds: jsonb("varbinds").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  createdAtIdx: index("snmp_traps_created_at_idx").on(table.createdAt),
+  sourceHostIdx: index("snmp_traps_source_host_idx").on(table.sourceHost),
+  transmitterIdx: index("snmp_traps_transmitter_idx").on(table.transmitterId),
+}));
+
 // Schema validation
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -128,6 +147,11 @@ export const insertAlarmSchema = createInsertSchema(alarms).omit({
   createdAt: true,
 });
 
+export const insertSnmpTrapSchema = createInsertSchema(snmpTraps).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -143,3 +167,6 @@ export type InsertTransmitterMetric = z.infer<typeof insertTransmitterMetricSche
 
 export type Alarm = typeof alarms.$inferSelect;
 export type InsertAlarm = z.infer<typeof insertAlarmSchema>;
+
+export type SnmpTrap = typeof snmpTraps.$inferSelect;
+export type InsertSnmpTrap = z.infer<typeof insertSnmpTrapSchema>;

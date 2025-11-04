@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { MapPin, Layers, Settings, Network } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export default function Navigation() {
   const [location] = useLocation();
@@ -14,6 +15,7 @@ export default function Navigation() {
               <span className="text-primary-foreground font-bold text-sm">FM</span>
             </div>
             <span className="font-semibold text-lg">Malaysian FM Network Monitor</span>
+            <Badge variant="outline" className="ml-2 text-xs" data-testid="app-version-badge">v13.1.1.7</Badge>
           </div>
           
           <div className="flex items-center gap-2">

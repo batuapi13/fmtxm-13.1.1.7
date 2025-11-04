@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
-import { transmitters, transmitterMetrics, sites, alarms } from '../../shared/schema';
+import { transmitters, transmitterMetrics, sites, alarms, snmpTraps } from '../../shared/schema';
 import { eq, desc, and, gte, lte } from 'drizzle-orm';
 import type { DeviceResult } from './snmp-poller';
 
@@ -56,6 +56,27 @@ export class DatabaseService {
         `UPDATE transmitters SET poll_interval = 10000 WHERE poll_interval IS NULL OR poll_interval = 30000;`
       );
       console.log(`Schema migration: poll_interval default set to 10000; rows updated=${updateRes.rowCount}`);
+
+      // Ensure snmp_traps table exists
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS snmp_traps (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          transmitter_id VARCHAR REFERENCES transmitters(id),
+          site_id VARCHAR REFERENCES sites(id),
+          source_host TEXT NOT NULL,
+          source_port INTEGER NOT NULL,
+          community TEXT,
+          version INTEGER NOT NULL,
+          trap_oid TEXT,
+          enterprise_oid TEXT,
+          varbinds JSONB NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS snmp_traps_created_at_idx ON snmp_traps (created_at);`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS snmp_traps_source_host_idx ON snmp_traps (source_host);`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS snmp_traps_transmitter_idx ON snmp_traps (transmitter_id);`);
+      console.log('Schema initialized: ensured snmp_traps table and indexes exist');
     } catch (error) {
       console.error('Schema initialization failed:', error);
     }
@@ -457,6 +478,92 @@ export class DatabaseService {
       return (res as any)?.rowCount > 0;
     } catch (error) {
       console.error('Failed to delete site:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Store an SNMP trap event
+   */
+  async storeSnmpTrap(trap: {
+    transmitterId?: string;
+    siteId?: string;
+    sourceHost: string;
+    sourcePort: number;
+    community?: string;
+    version: 0 | 1;
+    trapOid?: string;
+    enterpriseOid?: string;
+    varbinds: Array<{ oid: string; type?: string; value: any }>;
+  }): Promise<void> {
+    try {
+      await db.insert(snmpTraps).values({
+        transmitterId: trap.transmitterId,
+        siteId: trap.siteId,
+        sourceHost: trap.sourceHost,
+        sourcePort: trap.sourcePort,
+        community: trap.community,
+        version: trap.version,
+        trapOid: trap.trapOid,
+        enterpriseOid: trap.enterpriseOid,
+        varbinds: trap.varbinds as any,
+      });
+    } catch (error) {
+      console.error('Failed to store SNMP trap:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Query latest traps with optional filters
+   */
+  async getLatestTraps(params: {
+    limit?: number;
+    transmitterId?: string;
+    siteId?: string;
+    sourceHost?: string;
+  }): Promise<any[]> {
+    try {
+      const limit = params.limit && params.limit > 0 ? params.limit : 100;
+      const rows = await db.select().from(snmpTraps).orderBy(desc(snmpTraps.createdAt)).limit(limit);
+      return rows.filter((r) => (
+        (!params.transmitterId || r.transmitterId === params.transmitterId) &&
+        (!params.siteId || r.siteId === params.siteId) &&
+        (!params.sourceHost || r.sourceHost === params.sourceHost)
+      ));
+    } catch (error) {
+      console.error('Failed to fetch latest traps:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Query traps in a time range
+   */
+  async getTrapsRange(params: {
+    startTime: Date;
+    endTime: Date;
+    transmitterId?: string;
+    siteId?: string;
+    limit?: number;
+  }): Promise<any[]> {
+    try {
+      const limit = params.limit && params.limit > 0 ? params.limit : 1000;
+      const rows = await db
+        .select()
+        .from(snmpTraps)
+        .where(and(
+          gte(snmpTraps.createdAt, params.startTime),
+          lte(snmpTraps.createdAt, params.endTime)
+        ))
+        .orderBy(desc(snmpTraps.createdAt))
+        .limit(limit);
+      return rows.filter((r) => (
+        (!params.transmitterId || r.transmitterId === params.transmitterId) &&
+        (!params.siteId || r.siteId === params.siteId)
+      ));
+    } catch (error) {
+      console.error('Failed to fetch traps range:', error);
       throw error;
     }
   }

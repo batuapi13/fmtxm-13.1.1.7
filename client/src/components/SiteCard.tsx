@@ -4,7 +4,7 @@ import TransmitterCard from './TransmitterCard';
 import { useEffect, useState } from 'react';
 import { snmpService } from '@/services/snmpService';
 import StatusIndicator from './StatusIndicator';
-import { MapPin, AlertTriangle } from 'lucide-react';
+import { MapPin, AlertTriangle, GripVertical } from 'lucide-react';
 import type { SiteData, TransmitterData } from '@/types/dashboard';
 import { extractAlarmsFromSites } from '@/utils/siteDataLoader';
 
@@ -132,12 +132,22 @@ export default function SiteCard({ site, onSiteClick, alarms }: SiteCardProps) {
             </div>
           </div>
           
-          {siteAlarms > 0 && (
-            <Badge variant="destructive" className="flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" />
-              {siteAlarms}
-            </Badge>
-          )}
+          <div className="flex items-center gap-2">
+            <button
+              className="cursor-grab p-1 rounded hover:bg-muted/40"
+              aria-label="Drag site card"
+              onClick={(e) => e.preventDefault()}
+              title="Drag Site"
+            >
+              <GripVertical className="w-4 h-4 text-muted-foreground" />
+            </button>
+            {siteAlarms > 0 && (
+              <Badge variant="destructive" className="flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                {siteAlarms}
+              </Badge>
+            )}
+          </div>
         </div>
         
         <div className="flex items-center gap-2 text-sm">

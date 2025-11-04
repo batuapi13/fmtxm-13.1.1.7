@@ -25,6 +25,10 @@ export default defineConfig({
       "@": path.resolve(__dirname, "client", "src"),
       "@shared": path.resolve(__dirname, "shared"),
       "@assets": path.resolve(__dirname, "attached_assets"),
+      // Force single React instance by aliasing to the project root package
+      "react": path.resolve(__dirname, "node_modules", "react"),
+      "react-dom": path.resolve(__dirname, "node_modules", "react-dom"),
+      "react/jsx-runtime": path.resolve(__dirname, "node_modules", "react", "jsx-runtime.js"),
     },
     // Ensure single React instance to avoid invalid hook call during dev
     dedupe: ["react", "react-dom", "react/jsx-runtime", "react-dom/client"],
@@ -51,7 +55,19 @@ export default defineConfig({
     },
     fs: {
       strict: true,
-      deny: ["**/.*"],
+      // Allow workspace root so Vite can serve node_modules/.vite prebundled deps
+      allow: [__dirname],
+      // Deny sensitive VCS directories only; do not block .vite
+      deny: ["**/.git/**"],
     },
+  },
+  optimizeDeps: {
+    include: [
+      "react",
+      "react-dom",
+      "react-dom/client",
+      "react/jsx-runtime",
+      "@tanstack/react-query",
+    ],
   },
 });

@@ -10,6 +10,23 @@ import { snmpService } from '@/services/snmpService';
 import type { SiteData, TransmitterData, TransmitterStatus, TransmitterType, TransmitterRole } from '@/types/dashboard';
 
 
+// Helper to derive frequency (MHz) from metrics or raw SNMP data
+const deriveFrequencyMHz = (metrics: any, transmitter: any): number => {
+  const mFreq = typeof metrics?.frequency === 'number' ? metrics.frequency : undefined;
+  if (typeof mFreq === 'number' && mFreq > 0) return mFreq;
+  const sd = metrics?.snmpData || {};
+  const rawFreq = typeof sd?.['1.3.6.1.4.1.31946.4.2.6.10.14'] === 'number'
+    ? sd['1.3.6.1.4.1.31946.4.2.6.10.14']
+    : (typeof sd?.['1.3.6.1.4.1.31946.4.2.6.10.14.0'] === 'number'
+      ? sd['1.3.6.1.4.1.31946.4.2.6.10.14.0']
+      : undefined);
+  if (typeof rawFreq === 'number' && rawFreq > 0) return rawFreq / 100;
+  const tFreq = typeof transmitter?.frequency === 'number'
+    ? transmitter.frequency
+    : (parseFloat(String(transmitter?.frequency || '0')) || 0);
+  return tFreq || 0;
+};
+
 // Convert raw transmitter and site data to SiteData format
 const convertMetricsToSiteData = (transmitters: any[], sites: any[], latestMetrics: any[]): SiteData[] => {
   // Group transmitters by site (use camelCase siteId from DB)
@@ -63,6 +80,7 @@ const convertMetricsToSiteData = (transmitters: any[], sites: any[], latestMetri
         : String(index + 1);
       const computedLabel = apiLabel ?? roleDefaultLabel;
 
+      const computedFrequency = deriveFrequencyMHz(metrics, transmitter);
       return {
         id: transmitter.id,
         label: computedLabel,
@@ -70,7 +88,7 @@ const convertMetricsToSiteData = (transmitters: any[], sites: any[], latestMetri
         role: (transmitter.role || 'active') as TransmitterRole,
         status: statusUi,
         channelName: transmitter.name || 'Unknown',
-        frequency: (metrics?.frequency ?? transmitter.frequency ?? 0).toString(),
+        frequency: computedFrequency.toString(),
         transmitPower: forwardPower,
         reflectPower: reflectedPower,
         mainAudio: false,

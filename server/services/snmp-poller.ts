@@ -144,11 +144,55 @@ export class SNMPPoller {
       const normalizedOids = (Array.isArray(device.oids) ? device.oids : [])
         .map((oid) => (typeof oid === 'string' ? oid.trim() : String(oid)))
         .filter((oid) => !!oid);
-      const expandedOids = Array.from(
-        new Set(
-          normalizedOids.flatMap((oid) => [oid, oid.endsWith('.0') ? undefined : `${oid}.0`].filter(Boolean) as string[])
-        )
-      );
+
+      // Helper to strip a single trailing instance index (e.g., .0 or .4)
+      const stripInstance = (oid: string): string => {
+        const parts = oid.split('.');
+        const last = parts[parts.length - 1];
+        if (/^\d+$/.test(last)) {
+          const base = parts.slice(0, -1).join('.');
+          return base;
+        }
+        return oid;
+      };
+
+      // Expand OIDs to include scalar .0 and common instance indices used by Elenos ETG series (.1-.4)
+      const expandedSet = new Set<string>();
+      for (const oid of normalizedOids) {
+        const base = stripInstance(oid);
+        // Always include the original OID
+        expandedSet.add(oid);
+        // Include scalar .0 if missing
+        if (!oid.endsWith('.0')) {
+          expandedSet.add(`${base}.0`);
+        }
+        // If this is an Elenos ETG metric base, include common instance indices
+        if (/^1\.3\.6\.1\.4\.1\.31946\.4\.2\.6\.10\.(1|2|12|13|14)$/.test(base)) {
+          for (const idx of [1, 2, 3, 4]) {
+            expandedSet.add(`${base}.${idx}`);
+          }
+        }
+      }
+
+      // If any Elenos ETG base OID is present in the device config, ensure core metrics are always polled
+      const hasAnyElenos = normalizedOids.some((o) => stripInstance(o).startsWith('1.3.6.1.4.1.31946.4.2.6.10.'));
+      if (hasAnyElenos) {
+        const coreBases = [
+          '1.3.6.1.4.1.31946.4.2.6.10.1',  // forwardPower
+          '1.3.6.1.4.1.31946.4.2.6.10.2',  // reflectedPower
+          '1.3.6.1.4.1.31946.4.2.6.10.12', // onAir/standby status
+          '1.3.6.1.4.1.31946.4.2.6.10.14', // frequency
+        ];
+        for (const base of coreBases) {
+          expandedSet.add(base);
+          expandedSet.add(`${base}.0`);
+          for (const idx of [1, 2, 3, 4]) {
+            expandedSet.add(`${base}.${idx}`);
+          }
+        }
+      }
+
+      const expandedOids = Array.from(expandedSet);
 
       console.log(`Performing SNMP GET for device ${device.id} with OIDs:`, expandedOids);
       const varbinds = await this.performSNMPGet(session, expandedOids);
@@ -394,13 +438,43 @@ export class SNMPPoller {
 
       const txList = await databaseService.getAllTransmitters();
       for (const tx of txList) {
+        // Ensure critical Elenos OIDs are present even if not configured, so metrics like frequency are polled.
+        const baseOids: string[] = Array.isArray(tx.oids)
+          ? (tx.oids as unknown[]).filter((s: unknown): s is string => typeof s === 'string')
+          : [];
+        const dedup = (arr: string[]): string[] => Array.from(new Set(arr.filter((v): v is string => !!v)));
+        const hasElenosBase = baseOids.some((o: string) => o.startsWith('1.3.6.1.4.1.31946.4.2.6.10.'));
+        const ensureOids = [...baseOids];
+        if (hasElenosBase) {
+          // Forward Power (W)
+          if (!ensureOids.includes('1.3.6.1.4.1.31946.4.2.6.10.1')) {
+            ensureOids.push('1.3.6.1.4.1.31946.4.2.6.10.1');
+          }
+          // Reflected Power (W)
+          if (!ensureOids.includes('1.3.6.1.4.1.31946.4.2.6.10.2')) {
+            ensureOids.push('1.3.6.1.4.1.31946.4.2.6.10.2');
+          }
+          // Frequency (tens of kHz)
+          if (!ensureOids.includes('1.3.6.1.4.1.31946.4.2.6.10.14')) {
+            ensureOids.push('1.3.6.1.4.1.31946.4.2.6.10.14');
+          }
+          // On Air Status
+          if (!ensureOids.includes('1.3.6.1.4.1.31946.4.2.6.10.12')) {
+            ensureOids.push('1.3.6.1.4.1.31946.4.2.6.10.12');
+          }
+        }
+        // Helpful sysName for radio name updates
+        if (!ensureOids.includes('1.3.6.1.2.1.1.5.0')) {
+          ensureOids.push('1.3.6.1.2.1.1.5.0');
+        }
+        const finalOids = dedup(ensureOids);
         const device: SNMPDevice = {
           id: tx.id,
           host: tx.snmpHost,
           port: typeof tx.snmpPort === 'number' ? tx.snmpPort : 161,
           community: tx.snmpCommunity || 'public',
           version: (tx.snmpVersion === 0 ? 0 : 1),
-          oids: Array.isArray(tx.oids) ? tx.oids : [],
+          oids: finalOids,
           pollInterval: typeof tx.pollInterval === 'number' ? tx.pollInterval : 10000,
           isActive: tx.isActive !== false,
         };

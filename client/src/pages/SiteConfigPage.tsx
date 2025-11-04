@@ -80,6 +80,7 @@ export default function SiteConfigPage() {
       oids: [
         '1.3.6.1.4.1.31946.4.2.6.10.1', // Forward Power
         '1.3.6.1.4.1.31946.4.2.6.10.2', // Reflected Power
+        '1.3.6.1.4.1.31946.4.2.6.10.14', // Transmission Frequency (tens of kHz)
         '1.3.6.1.4.1.31946.4.2.6.10.12', // On Air Status
       ],
     },

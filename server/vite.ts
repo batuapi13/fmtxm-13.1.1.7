@@ -50,9 +50,36 @@ export async function setupVite(app: Express, server: Server) {
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
-    
+
     // Skip API routes
     if (url.startsWith('/api/')) {
+      return next();
+    }
+
+    // Handle Vite HMR ping using HEAD /
+    if (req.method === 'HEAD' && url === '/') {
+      return res.status(200).end();
+    }
+
+    const accept = (req.headers.accept || '').toLowerCase();
+    const wantsHtml = req.method === 'GET' && accept.includes('text/html');
+
+    // Vite client performs a ping to '/'; respond with 200 OK for non-HTML pings
+    if (url === '/' && !wantsHtml) {
+      return res.status(200).type('text/plain').end('ok');
+    }
+
+    // Let Vite handle asset and HMR routes
+    const isViteAsset = (
+      url.startsWith('/@vite') ||
+      url.startsWith('/@react-refresh') ||
+      url.startsWith('/@fs') ||
+      url.startsWith('/@id') ||
+      url.startsWith('/node_modules') ||
+      /\.(js|mjs|ts|tsx|css|map|json|svg|png|jpg|jpeg|gif|webp|ico)$/i.test(url)
+    );
+
+    if (isViteAsset) {
       return next();
     }
 
@@ -63,9 +90,6 @@ export async function setupVite(app: Express, server: Server) {
         "client",
         "index.html",
       );
-
-      // always reload the index.html file from disk in case it changes
-      // use a stable query param to avoid forcing a full reload each request
       const template = await fs.promises.readFile(clientTemplate, "utf-8");
       const page = await vite.transformIndexHtml(url, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);

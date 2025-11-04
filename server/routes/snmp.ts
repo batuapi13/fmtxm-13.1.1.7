@@ -7,7 +7,7 @@ import path from 'path';
 import { loadMibMappings, mapOidToName, stripInstance } from '../services/mib-mapper';
 
 const router = express.Router();
-const snmpPoller = new SNMPPoller();
+export const snmpPoller = new SNMPPoller();
 
 // Convert version string to SNMP version number
 const getSnmpVersion = (version: string): 0 | 1 => {
@@ -580,7 +580,7 @@ router.put('/transmitters/:id', async (req, res) => {
       id,
       ...(data.siteId ? { siteId: data.siteId } : {}),
       ...(data.name ? { name: data.name } : {}),
-      ...(data.displayOrder !== undefined ? { displayOrder: typeof data.displayOrder === 'number' ? data.displayOrder : parseInt(data.displayOrder, 10) || 0 } : {}),
+      ...(data.displayOrder !== undefined ? { displayOrder: typeof data.displayOrder === 'number' ? data.displayOrder : (typeof data.displayOrder === 'string' ? parseInt(data.displayOrder, 10) || 0 : undefined) } : {}),
       ...(data.frequency !== undefined ? { frequency: typeof data.frequency === 'number' ? data.frequency : parseFloat(data.frequency) || 0 } : {}),
       ...(data.power !== undefined ? { power: typeof data.power === 'number' ? data.power : parseFloat(data.power) || 0 } : {}),
       ...(data.status ? { status: data.status } : {}),
@@ -682,3 +682,38 @@ router.delete('/sites/:id', async (req, res) => {
 });
 
 export default router;
+
+// Traps endpoints
+router.get('/traps/latest', async (req, res) => {
+  try {
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
+    const transmitterId = req.query.transmitterId ? String(req.query.transmitterId) : undefined;
+    const siteId = req.query.siteId ? String(req.query.siteId) : undefined;
+    const sourceHost = req.query.sourceHost ? String(req.query.sourceHost) : undefined;
+
+    const rows = await databaseService.getLatestTraps({ limit, transmitterId, siteId, sourceHost });
+    res.json(rows);
+  } catch (error) {
+    console.error('Failed to fetch latest traps:', error);
+    res.status(500).json({ error: 'Failed to fetch latest traps' });
+  }
+});
+
+router.get('/traps/range', async (req, res) => {
+  try {
+    const start = req.query.start ? new Date(String(req.query.start)) : undefined;
+    const end = req.query.end ? new Date(String(req.query.end)) : undefined;
+    if (!start || !end) {
+      return res.status(400).json({ error: 'start and end query params are required (ISO date strings)' });
+    }
+    const transmitterId = req.query.transmitterId ? String(req.query.transmitterId) : undefined;
+    const siteId = req.query.siteId ? String(req.query.siteId) : undefined;
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
+
+    const rows = await databaseService.getTrapsRange({ startTime: start, endTime: end, transmitterId, siteId, limit });
+    res.json(rows);
+  } catch (error) {
+    console.error('Failed to fetch traps range:', error);
+    res.status(500).json({ error: 'Failed to fetch traps range' });
+  }
+});
